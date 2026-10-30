@@ -212,6 +212,22 @@
     { name: "FormationProposee", title: "Formation proposée (facultatif)",   type: "Any", optional: true }
   ];
 
+  // Si une colonne n'est pas associée dans le panneau, on cherche une colonne de même nom
+  var FALLBACK = {
+    Nom:               /^nom$/,
+    Prenom:            /^pre?nom$/,
+    NumeroDossier:     /dossier/,
+    TypeSaisine:       /saisine/,
+    SituationFinale:   /^situationfinale/,
+    AvisMedecin:       /^avism?e?decin/,
+    AvisMaison:        /^avis.*maison/,
+    Bac:               /^bac$/,
+    FormationDemandee: /^formationdemand/,
+    FormationProposee: /^formationpropos/
+  };
+  var colOf = {};      // nom logique -> clé réellement présente dans les enregistrements
+  var rawKeys = [];
+
   /* ---------- État ---------- */
   var records = [];
   var query = "";
@@ -245,7 +261,18 @@
     return String(v);
   }
 
-  function val(rec, name) { return asText(rec[name]); }
+  function resolveCols(rec) {
+    rawKeys = Object.keys(rec).filter(function (k) { return k !== "id"; });
+    colOf = {};
+    Object.keys(FALLBACK).forEach(function (name) {
+      if (name in rec) { colOf[name] = name; return; }
+      for (var i = 0; i < rawKeys.length; i++) {
+        if (FALLBACK[name].test(lettersOnly(rawKeys[i]))) { colOf[name] = rawKeys[i]; break; }
+      }
+    });
+  }
+  function get(rec, name) { var k = colOf[name]; return k === undefined ? undefined : rec[k]; }
+  function val(rec, name) { return asText(get(rec, name)); }
 
   var LABEL_CAT = { hm: "Handicap / Médical", shn: "SHN", aut: "Autres situations" };
   var LABEL_ST = { todo: "À traiter", done: "Traités", closed: "Clôturés" };
@@ -256,7 +283,7 @@
     if (/shn|hautniveau/.test(t)) return "shn";
     return "aut";
   }
-  function categoryOf(rec) { return categoryOfValue(rec["TypeSaisine"]); }
+  function categoryOf(rec) { return categoryOfValue(get(rec, "TypeSaisine")); }
 
   function stateOfValue(raw) {
     var s = lettersOnly(asText(raw));
@@ -265,7 +292,7 @@
     if (/traite/.test(s)) return "done";
     return "todo";
   }
-  function stateOf(rec) { return stateOfValue(rec["SituationFinale"]); }
+  function stateOf(rec) { return stateOfValue(get(rec, "SituationFinale")); }
 
   function el(tag, props, children) {
     var node = document.createElement(tag);
@@ -367,8 +394,9 @@
     function table(title, field, classify, labels) {
       var seen = {};
       records.forEach(function (r) {
-        var k = JSON.stringify(r[field] === undefined ? null : r[field]);
-        if (!seen[k]) seen[k] = { n: 0, raw: r[field] };
+        var v = get(r, field);
+        var k = JSON.stringify(v === undefined ? null : v);
+        if (!seen[k]) seen[k] = { n: 0, raw: v };
         seen[k].n++;
       });
       var rows = Object.keys(seen).sort(function (a, b) { return seen[b].n - seen[a].n; }).slice(0, 15);
@@ -392,6 +420,12 @@
     table("Colonne associée à « Type de saisine »", "TypeSaisine", categoryOfValue, LABEL_CAT)
       .concat(table("Colonne associée à « Situation finale »", "SituationFinale", stateOfValue, LABEL_ST))
       .forEach(function (n) { diag.appendChild(n); });
+    diag.appendChild(el("h3", { text: "Colonnes reçues du widget" }));
+    diag.appendChild(el("div", { text: rawKeys.join(", ") || "(aucune)" }));
+    diag.appendChild(el("h3", { text: "Colonnes utilisées" }));
+    diag.appendChild(el("div", { text: Object.keys(FALLBACK).map(function (n) {
+      return n + " → " + (colOf[n] === undefined ? "non trouvée" : colOf[n]);
+    }).join(" · ") }));
     diag.hidden = false;
   }
 
@@ -426,8 +460,8 @@
 
     var avis = el("div", { class: "avis" });
     if (cat.avisField) {
-      var column = cat.avisField;
-      if (!(column in rec)) {
+      var column = colOf[cat.avisField];
+      if (column === undefined) {
         avis.appendChild(el("div", { class: "none", text: "Colonne « " + cat.avisLabel + " » non associée : choisissez-la dans le panneau de configuration du widget." }));
       } else {
         var id = "avis-" + rec.id;
@@ -452,7 +486,7 @@
           msg.className = "msg";
           msg.textContent = "Enregistrement…";
           var fields = {}; fields[column] = ta.value;
-          grist.selectedTable.update({ id: rec.id, fields: fields }).then(function () {
+          (column === cat.avisField ? grist.selectedTable : grist.getTable()).update({ id: rec.id, fields: fields }).then(function () {
             original = ta.value;
             ta.setAttribute("data-dirty", "0");
             msg.textContent = "Enregistré ✓";
@@ -508,6 +542,7 @@
   grist.onRecords(function (recs) {
     forcedNotice = "";
     records = recs || [];
+    if (records.length) resolveCols(records[0]);
     render();
   });
 
