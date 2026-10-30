@@ -157,6 +157,14 @@
   .avis .msg.err { color: #b3261e; }
   .avis .none { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
+  .diag { margin: -8px 0 18px; font-size: 13px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
+  .diag > summary { cursor: pointer; padding: 8px 0; color: var(--muted); font-weight: 600; }
+  .diag.warn { background: #fff4e0; border-color: #e8c48a; }
+  .diag.warn > summary { color: #6b4a14; }
+  .diag table { border-collapse: collapse; margin: 2px 0 10px; width: 100%; }
+  .diag th, .diag td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .diag code { background: rgba(31,42,55,.07); padding: 0 4px; border-radius: 4px; word-break: break-all; }
+  .diag h3 { margin: 8px 0 4px; font-size: 13px; }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -171,6 +179,7 @@
 </div>
 
 <div class="notice" id="notice"></div>
+<details class="diag" id="diag" hidden></details>
 <div class="grid" id="grid"></div>
 
 <script>
@@ -229,25 +238,34 @@
     if (Array.isArray(v)) {                       // Choice List : ["L", "a", "b"]
       return v.filter(function (x) { return x !== "L"; }).join(", ");
     }
+    if (typeof v === "object") {
+      var t = v.display || v.label || v.name || v.value;
+      return t != null ? String(t) : JSON.stringify(v);
+    }
     return String(v);
   }
 
   function val(rec, name) { return asText(rec[name]); }
 
-  function categoryOf(rec) {
-    var t = norm(val(rec, "TypeSaisine"));
-    if (/handicap|medic/.test(t)) return "hm";
-    if (/\bshn\b|haut niveau/.test(t)) return "shn";
+  var LABEL_CAT = { hm: "Handicap / Médical", shn: "SHN", aut: "Autres situations" };
+  var LABEL_ST = { todo: "À traiter", done: "Traités", closed: "Clôturés" };
+
+  function categoryOfValue(raw) {
+    var t = lettersOnly(asText(raw));
+    if (/handicap|medic|rqth|sante/.test(t)) return "hm";
+    if (/shn|hautniveau/.test(t)) return "shn";
     return "aut";
   }
+  function categoryOf(rec) { return categoryOfValue(rec["TypeSaisine"]); }
 
-  function stateOf(rec) {
-    var s = norm(val(rec, "SituationFinale")).trim();
+  function stateOfValue(raw) {
+    var s = lettersOnly(asText(raw));
     if (/clotur/.test(s)) return "closed";
     if (/traiter/.test(s) || s === "") return "todo";
     if (/traite/.test(s)) return "done";
     return "todo";
   }
+  function stateOf(rec) { return stateOfValue(rec["SituationFinale"]); }
 
   function el(tag, props, children) {
     var node = document.createElement(tag);
@@ -340,6 +358,41 @@
 
       grid.appendChild(panel);
     });
+    renderDiag();
+  }
+
+  function renderDiag() {
+    var diag = document.getElementById("diag");
+    if (!records.length) { diag.hidden = true; return; }
+    function table(title, field, classify, labels) {
+      var seen = {};
+      records.forEach(function (r) {
+        var k = JSON.stringify(r[field] === undefined ? null : r[field]);
+        if (!seen[k]) seen[k] = { n: 0, raw: r[field] };
+        seen[k].n++;
+      });
+      var rows = Object.keys(seen).sort(function (a, b) { return seen[b].n - seen[a].n; }).slice(0, 15);
+      var t = el("table", null, [el("tr", null, [
+        el("th", { text: "Valeur lue" }), el("th", { text: "Dossiers" }), el("th", { text: "Classée dans" })])]);
+      rows.forEach(function (k) {
+        t.appendChild(el("tr", null, [
+          el("td", null, [el("code", { text: k })]),
+          el("td", { text: String(seen[k].n) }),
+          el("td", { text: labels[classify(seen[k].raw)] })]));
+      });
+      return [el("h3", { text: title }), t];
+    }
+    diag.textContent = "";
+    var anyKnown = records.some(function (r) { return categoryOf(r) !== "aut"; });
+    diag.className = "diag" + (anyKnown ? "" : " warn");
+    diag.open = !anyKnown;
+    diag.appendChild(el("summary", { text: anyKnown
+      ? "Contrôle des données lues (type de saisine, situation finale)"
+      : "⚠ Aucun dossier reconnu en Handicap/Médical ou SHN : voici ce que le widget reçoit" }));
+    table("Colonne associée à « Type de saisine »", "TypeSaisine", categoryOfValue, LABEL_CAT)
+      .concat(table("Colonne associée à « Situation finale »", "SituationFinale", stateOfValue, LABEL_ST))
+      .forEach(function (n) { diag.appendChild(n); });
+    diag.hidden = false;
   }
 
   function renderDossier(rec, cat) {
