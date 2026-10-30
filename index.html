@@ -179,8 +179,8 @@
 
   /* ---------- Configuration ---------- */
   var CATEGORIES = [
-    { key: "hm",  css: "hm",  title: "Handicap / Médical", avisField: "avisMedecin",  avisLabel: "Avis du médecin" },
-    { key: "shn", css: "shn", title: "SHN", avisField: "avisMaison", avisLabel: "Avis de la Maison de la Performance" },
+    { key: "hm",  css: "hm",  title: "Handicap / Médical", avisField: "AvisMedecin",  avisLabel: "Avis du médecin" },
+    { key: "shn", css: "shn", title: "SHN", avisField: "AvisMaison", avisLabel: "Avis de la Maison de la Performance" },
     { key: "aut", css: "aut", title: "Autres situations (mutation, chargé de famille, mandat électoral…)", avisField: null }
   ];
   var STATES = [
@@ -189,23 +189,22 @@
     { key: "closed", label: "Clôturés",  open: false }
   ];
 
-  // Colonnes recherchées (insensible aux accents, espaces, majuscules)
-  var COLUMN_PATTERNS = {
-    nom:        /^nom$/,
-    prenom:     /^pre?nom$/,
-    dossier:    /dossier/,
-    saisine:    /saisine/,
-    avisMedecin:/^avism?e?decin/,
-    avisMaison: /^avis.*maison/,
-    situation:  /^situationfinale/,
-    bac:        /^bac$/,
-    formationDemandee: /^formationdemand/,
-    formationProposee: /^formationpropos/
-  };
+  // Colonnes à associer dans le panneau de configuration du widget Grist
+  var COLUMN_DEFS = [
+    { name: "Nom",           title: "Nom",                  type: "Any" },
+    { name: "Prenom",        title: "Prénom",               type: "Any" },
+    { name: "NumeroDossier", title: "Numéro de dossier",    type: "Any" },
+    { name: "TypeSaisine",   title: "Type de saisine",      type: "Any", description: "Détermine la catégorie : Handicap/Médical, SHN ou Autres situations" },
+    { name: "SituationFinale", title: "Situation finale",   type: "Any", description: "À traiter, Traité ou Clôturé" },
+    { name: "AvisMedecin",   title: "Avis médecin",         type: "Any", description: "Modifiable pour les saisines Handicap/Médical" },
+    { name: "AvisMaison",    title: "Avis Maison de la Performance", type: "Any", description: "Modifiable pour les saisines SHN" },
+    { name: "Bac",               title: "Bac (facultatif)",                  type: "Any", optional: true },
+    { name: "FormationDemandee", title: "Formation demandée (facultatif)",   type: "Any", optional: true },
+    { name: "FormationProposee", title: "Formation proposée (facultatif)",   type: "Any", optional: true }
+  ];
 
   /* ---------- État ---------- */
   var records = [];
-  var cols = {};
   var query = "";
   var openDossiers = {};   // id -> true
   var openGroups = {};     // "cat|state" -> true/false (choix de l'utilisateur)
@@ -233,29 +232,17 @@
     return String(v);
   }
 
-  function detectColumns(rec) {
-    var keys = Object.keys(rec).filter(function (k) { return k !== "id"; });
-    var found = {};
-    Object.keys(COLUMN_PATTERNS).forEach(function (name) {
-      var re = COLUMN_PATTERNS[name];
-      for (var i = 0; i < keys.length; i++) {
-        if (re.test(lettersOnly(keys[i]))) { found[name] = keys[i]; break; }
-      }
-    });
-    return found;
-  }
-
-  function val(rec, name) { return cols[name] ? asText(rec[cols[name]]) : ""; }
+  function val(rec, name) { return asText(rec[name]); }
 
   function categoryOf(rec) {
-    var t = norm(val(rec, "saisine"));
+    var t = norm(val(rec, "TypeSaisine"));
     if (/handicap|medic/.test(t)) return "hm";
     if (/\bshn\b|haut niveau/.test(t)) return "shn";
     return "aut";
   }
 
   function stateOf(rec) {
-    var s = norm(val(rec, "situation")).trim();
+    var s = norm(val(rec, "SituationFinale")).trim();
     if (/clotur/.test(s)) return "closed";
     if (/traiter/.test(s) || s === "") return "todo";
     if (/traite/.test(s)) return "done";
@@ -282,15 +269,15 @@
     if (!query) return true;
     var q = norm(query).trim();
     if (!q) return true;
-    var hay = [val(rec, "nom"), val(rec, "prenom"), val(rec, "dossier"),
-               val(rec, "prenom") + " " + val(rec, "nom"),
-               val(rec, "nom") + " " + val(rec, "prenom")].map(norm).join("|");
+    var hay = [val(rec, "Nom"), val(rec, "Prenom"), val(rec, "NumeroDossier"),
+               val(rec, "Prenom") + " " + val(rec, "Nom"),
+               val(rec, "Nom") + " " + val(rec, "Prenom")].map(norm).join("|");
     return hay.indexOf(q) !== -1;
   }
 
   function sortRecs(a, b) {
-    var na = norm(val(a, "nom") + " " + val(a, "prenom"));
-    var nb = norm(val(b, "nom") + " " + val(b, "prenom"));
+    var na = norm(val(a, "Nom") + " " + val(a, "Prenom"));
+    var nb = norm(val(b, "Nom") + " " + val(b, "Prenom"));
     return na < nb ? -1 : na > nb ? 1 : 0;
   }
 
@@ -305,13 +292,6 @@
     } else if (!records.length) {
       notice.style.display = "block";
       notice.textContent = "Aucun dossier à afficher. Vérifiez que le widget est lié à la table des demandes CAES.";
-    } else if (!cols.saisine || !cols.situation) {
-      notice.style.display = "block";
-      var missing = [];
-      if (!cols.saisine) missing.push("« Type de saisine »");
-      if (!cols.situation) missing.push("« Situation finale »");
-      notice.textContent = "Colonne introuvable : " + missing.join(" et ") +
-        ". Les dossiers sont classés par défaut dans « Autres situations » / « À traiter ».";
     } else {
       notice.style.display = "none";
     }
@@ -363,8 +343,8 @@
   }
 
   function renderDossier(rec, cat) {
-    var fullName = (val(rec, "nom") + " " + val(rec, "prenom")).trim() || "(sans nom)";
-    var num = val(rec, "dossier");
+    var fullName = (val(rec, "Nom") + " " + val(rec, "Prenom")).trim() || "(sans nom)";
+    var num = val(rec, "NumeroDossier");
 
     var d = el("details", { class: "dossier" }, [
       el("summary", null, [
@@ -380,11 +360,11 @@
     var body = el("div", { class: "body" });
 
     var dl = el("dl", { class: "info" });
-    [["Type de saisine", "saisine"], ["Bac", "bac"],
-     ["Formation demandée", "formationDemandee"], ["Formation proposée", "formationProposee"],
-     ["Situation finale", "situation"]].forEach(function (pair) {
+    [["Type de saisine", "TypeSaisine"], ["Bac", "Bac"],
+     ["Formation demandée", "FormationDemandee"], ["Formation proposée", "FormationProposee"],
+     ["Situation finale", "SituationFinale"]].forEach(function (pair) {
       var v = val(rec, pair[1]);
-      if (cols[pair[1]] && v) {
+      if (v) {
         dl.appendChild(el("dt", { text: pair[0] }));
         dl.appendChild(el("dd", { text: v }));
       }
@@ -393,9 +373,9 @@
 
     var avis = el("div", { class: "avis" });
     if (cat.avisField) {
-      var column = cols[cat.avisField];
-      if (!column) {
-        avis.appendChild(el("div", { class: "none", text: "Colonne « " + cat.avisLabel + " » introuvable dans la table." }));
+      var column = cat.avisField;
+      if (!(column in rec)) {
+        avis.appendChild(el("div", { class: "none", text: "Colonne « " + cat.avisLabel + " » non associée : choisissez-la dans le panneau de configuration du widget." }));
       } else {
         var id = "avis-" + rec.id;
         var original = asText(rec[column]);
@@ -419,7 +399,7 @@
           msg.className = "msg";
           msg.textContent = "Enregistrement…";
           var fields = {}; fields[column] = ta.value;
-          grist.getTable().update({ id: rec.id, fields: fields }).then(function () {
+          grist.selectedTable.update({ id: rec.id, fields: fields }).then(function () {
             original = ta.value;
             ta.setAttribute("data-dirty", "0");
             msg.textContent = "Enregistré ✓";
@@ -471,19 +451,19 @@
     return;
   }
 
-  grist.ready({ requiredAccess: "full" });
+  grist.ready({ requiredAccess: "full", columns: COLUMN_DEFS });
   grist.onRecords(function (recs) {
     forcedNotice = "";
     records = recs || [];
-    if (records.length) cols = detectColumns(records[0]);
     render();
   });
 
-  // Aucune donnée reçue au bout de 4 s : probablement aucune table liée au widget
+  // Aucune donnée reçue au bout de 4 s : table non liée ou colonnes non associées
   setTimeout(function () {
     if (!records.length && !forcedNotice) {
-      forcedNotice = "Aucune donnée reçue de Grist. Dans le panneau du widget, choisissez la table " +
-        "des demandes CAES dans « Sélectionner les données » et donnez l’accès complet au document.";
+      forcedNotice = "Aucune donnée reçue de Grist. Ouvrez le panneau du widget : choisissez la table " +
+        "des demandes CAES dans « Sélectionner les données », puis associez chaque colonne " +
+        "(Nom, Prénom, Numéro de dossier, Type de saisine, Situation finale, Avis…) avant de vérifier l’accès complet.";
       render();
     }
   }, 4000);
