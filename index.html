@@ -218,7 +218,9 @@
     { name: "SpecialiteBac",     title: "Spécialité du bac (facultatif)",    type: "Any", optional: true },
     { name: "FormationDemandee", title: "Formation demandée (facultatif)",   type: "Any", optional: true },
     { name: "Etablissement",     title: "Établissement concerné (facultatif)", type: "Any", optional: true },
-    { name: "AvisEtablissement", title: "Avis de l’établissement : Favorable / Défavorable (facultatif)", type: "Any", optional: true },
+    { name: "AvisEtablissement", title: "Avis étab / université (facultatif)", type: "Any", optional: true, description: "Reçoit « Avis favorable » ou « Avis défavorable »" },
+    { name: "Sport",             title: "Sport concerné – SHN (facultatif)", type: "Any", optional: true },
+    { name: "ListeMinisterielle", title: "Inscription sur liste ministérielle – SHN (facultatif)", type: "Any", optional: true },
     { name: "AutreProposition",  title: "Autre proposition envisageable (facultatif)", type: "Any", optional: true },
     { name: "FormationProposee", title: "Formation proposée (facultatif)",   type: "Any", optional: true }
   ];
@@ -236,7 +238,9 @@
     SpecialiteBac:     /specialit/,
     FormationDemandee: /^formationdemand/,
     Etablissement:     /^etablissement/,
-    AvisEtablissement: /^avis.*etablissement/,
+    AvisEtablissement: /^avis.*(tab|univ)/,
+    Sport:             /sport/,
+    ListeMinisterielle:/listemin|ministeri/,
     AutreProposition:  /autreproposition|propositionenvisag/,
     FormationProposee: /^formationpropos/
   };
@@ -266,6 +270,7 @@
 
   function asText(v) {
     if (v == null) return "";
+    if (typeof v === "boolean") return v ? "Oui" : "Non";
     if (Array.isArray(v)) {                       // Choice List : ["L", "a", "b"]
       return v.filter(function (x) { return x !== "L"; }).join(", ");
     }
@@ -508,14 +513,14 @@
     var box = el("div");
     var wrap = el("div", { class: "avis" });
     var column = colOf.AvisEtablissement;
-    wrap.appendChild(el("div", { class: "lbl", text: "Avis de l’établissement" }));
+    wrap.appendChild(el("div", { class: "lbl", text: "Avis établissement / université" }));
     if (column === undefined) {
-      wrap.appendChild(el("div", { class: "none", text: "Colonne « Avis de l’établissement » introuvable : associez-la dans le panneau du widget." }));
+      wrap.appendChild(el("div", { class: "none", text: "Colonne « Avis étab / université » introuvable : associez-la dans le panneau du widget." }));
       box.appendChild(wrap);
       return box;
     }
     var raw = lettersOnly(asText(rec[column]));
-    var choice = /^defavorable/.test(raw) ? "def" : /^favorable/.test(raw) ? "fav" : "";
+    var choice = /defavorable/.test(raw) ? "def" : /favorable/.test(raw) ? "fav" : "";
 
     var cbFav = el("input", { type: "checkbox" });
     var cbDef = el("input", { type: "checkbox" });
@@ -532,7 +537,7 @@
       extra.classList.toggle("hidden", next !== "def");
       msg.className = "msg";
       msg.textContent = "Enregistrement…";
-      var text = next === "fav" ? "Favorable" : next === "def" ? "Défavorable" : "";
+      var text = next === "fav" ? "Avis favorable" : next === "def" ? "Avis défavorable" : "";
       saveField(rec, "AvisEtablissement", text).then(function () {
         msg.textContent = "Enregistré ✓";
       }).catch(function (e) {
@@ -544,8 +549,8 @@
     cbDef.addEventListener("change", function () { apply(cbDef.checked ? "def" : "", cbDef); });
 
     wrap.appendChild(el("div", { class: "choices" }, [
-      el("label", null, [cbFav, el("span", { text: "Favorable" })]),
-      el("label", null, [cbDef, el("span", { text: "Défavorable" })])
+      el("label", null, [cbFav, el("span", { text: "Avis favorable" })]),
+      el("label", null, [cbDef, el("span", { text: "Avis défavorable" })])
     ]));
     wrap.appendChild(el("div", { class: "actions" }, [msg]));
     box.appendChild(wrap);
@@ -572,7 +577,7 @@
     var bacSpe = val(rec, "SpecialiteBac");
     var bacLine = [];
     if (bacType) bacLine.push("Bac : " + bacType);
-    if (bacSpe) bacLine.push("Spécialité : " + bacSpe);
+    if (bacSpe) bacLine.push(bacSpe);
 
     var d = el("details", { class: "dossier" }, [
       el("summary", null, [
@@ -589,8 +594,12 @@
     });
 
     var body = el("div", { class: "body" });
-    var dl1 = infoList(rec, [["Type de saisine", "TypeSaisine"], ["Situation finale", "SituationFinale"],
-                             ["Formation demandée", "FormationDemandee"], ["Établissement concerné", "Etablissement"]]);
+    var pairs1 = [["Type de saisine", "TypeSaisine"]];
+    if (cat.key === "shn") {
+      pairs1.push(["Sport concerné", "Sport"], ["Inscription sur liste ministérielle", "ListeMinisterielle"]);
+    }
+    pairs1.push(["Formation demandée", "FormationDemandee"], ["Établissement concerné", "Etablissement"]);
+    var dl1 = infoList(rec, pairs1);
     if (dl1) body.appendChild(dl1);
 
     body.appendChild(etabEditor(rec));
