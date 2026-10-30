@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAES 2026</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  :root {
+    --ink: #1f2a37;
+    --muted: #5b6776;
+    --line: rgba(31, 42, 55, .14);
+    --page: #fbfbfd;
+    --card: #ffffff;
+
+    --hm-bg: #e6eefa;  --hm-head: #c9dcf5;  --hm-ink: #24456e;
+    --shn-bg: #e4f3e6; --shn-head: #c6e5ca; --shn-ink: #2a5632;
+    --aut-bg: #eee8f8; --aut-head: #dcd0f0; --aut-ink: #4a3a73;
+
+    --st-todo: #d9822b;
+    --st-done: #2e8b8b;
+    --st-closed: #8a94a3;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--page);
+    padding: 18px 20px 28px;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  h1 {
+    margin: 0 0 14px;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  .search {
+    position: relative;
+    max-width: 560px;
+    margin-bottom: 20px;
+  }
+  .search input {
+    width: 100%;
+    padding: 11px 38px 11px 14px;
+    font: inherit;
+    font-size: 15px;
+    color: var(--ink);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    outline: none;
+  }
+  .search input:focus { border-color: #6d8fc4; box-shadow: 0 0 0 3px rgba(109,143,196,.2); }
+  .search button {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    border: 0; background: transparent; font-size: 18px; color: var(--muted);
+    cursor: pointer; padding: 4px 8px; display: none;
+  }
+  .search.has-text button { display: block; }
+
+  .notice {
+    padding: 14px 16px; border-radius: 10px; background: #fff4e0; color: #6b4a14;
+    margin-bottom: 16px; display: none;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .panel {
+    border-radius: 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .panel.hm  { --bg: var(--hm-bg);  --head: var(--hm-head);  --tint: var(--hm-ink); }
+  .panel.shn { --bg: var(--shn-bg); --head: var(--shn-head); --tint: var(--shn-ink); }
+  .panel.aut { --bg: var(--aut-bg); --head: var(--aut-head); --tint: var(--aut-ink); }
+
+  .panel-head {
+    background: var(--head);
+    color: var(--tint);
+    padding: 14px 16px 12px;
+  }
+  .panel-head h2 { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
+  .panel-head .total { margin-top: 2px; font-size: 13px; opacity: .85; }
+
+  .group { border-top: 1px solid var(--line); }
+  .group > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    color: var(--tint);
+    user-select: none;
+  }
+  .group > summary::-webkit-details-marker { display: none; }
+  .group > summary::before {
+    content: "▸"; font-size: 12px; transition: transform .15s;
+  }
+  .group[open] > summary::before { transform: rotate(90deg); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.todo { background: var(--st-todo); }
+  .dot.done { background: var(--st-done); }
+  .dot.closed { background: var(--st-closed); }
+  .count {
+    margin-left: auto;
+    background: rgba(255,255,255,.75);
+    border-radius: 999px;
+    padding: 1px 10px;
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+  .list { padding: 2px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .empty { padding: 4px 6px 4px; color: var(--muted); font-size: 13px; }
+
+  .dossier {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .dossier > summary {
+    list-style: none; cursor: pointer;
+    padding: 9px 12px;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .dossier > summary::-webkit-details-marker { display: none; }
+  .dossier .name { font-weight: 600; }
+  .dossier .num { color: var(--muted); font-size: 12.5px; }
+  .dossier[open] { box-shadow: 0 2px 10px rgba(31,42,55,.08); }
+  .body { padding: 2px 12px 12px; border-top: 1px dashed var(--line); }
+  .info { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 10px 0; font-size: 13px; }
+  .info dt { color: var(--muted); }
+  .info dd { margin: 0; word-break: break-word; }
+  .avis label { display: block; font-weight: 600; margin: 8px 0 4px; font-size: 13px; }
+  .avis textarea {
+    width: 100%; min-height: 78px; resize: vertical;
+    font: inherit; padding: 8px 10px;
+    border: 1.5px solid var(--line); border-radius: 8px;
+    background: #fff; color: var(--ink); outline: none;
+  }
+  .avis textarea:focus { border-color: #6d8fc4; box-shadow: 0 0 0 3px rgba(109,143,196,.2); }
+  .avis .actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; min-height: 30px; }
+  .avis button {
+    font: inherit; font-weight: 600; font-size: 13px;
+    padding: 6px 14px; border-radius: 8px; border: 0; cursor: pointer;
+    background: var(--tint); color: #fff;
+  }
+  .avis button:disabled { opacity: .45; cursor: default; }
+  .avis .msg { font-size: 12.5px; color: var(--muted); }
+  .avis .msg.err { color: #b3261e; }
+  .avis .none { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<h1>CAES 2026</h1>
+
+<div class="search" id="searchBox">
+  <input id="search" type="search" placeholder="Rechercher par nom, prénom ou numéro de dossier" autocomplete="off" aria-label="Rechercher un dossier">
+  <button type="button" id="clear" aria-label="Effacer la recherche">×</button>
+</div>
+
+<div class="notice" id="notice"></div>
+<div class="grid" id="grid"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Configuration ---------- */
+  var CATEGORIES = [
+    { key: "hm",  css: "hm",  title: "Handicap / Médical", avisField: "avisMedecin",  avisLabel: "Avis du médecin" },
+    { key: "shn", css: "shn", title: "SHN", avisField: "avisMaison", avisLabel: "Avis de la Maison de la Performance" },
+    { key: "aut", css: "aut", title: "Autres situations (mutation, chargé de famille, mandat électoral…)", avisField: null }
+  ];
+  var STATES = [
+    { key: "todo",   label: "À traiter", open: true },
+    { key: "done",   label: "Traités",   open: false },
+    { key: "closed", label: "Clôturés",  open: false }
+  ];
+
+  // Colonnes recherchées (insensible aux accents, espaces, majuscules)
+  var COLUMN_PATTERNS = {
+    nom:        /^nom$/,
+    prenom:     /^pre?nom$/,
+    dossier:    /dossier/,
+    saisine:    /saisine/,
+    avisMedecin:/^avism?e?decin/,
+    avisMaison: /^avis.*maison/,
+    situation:  /^situationfinale/,
+    bac:        /^bac$/,
+    formationDemandee: /^formationdemand/,
+    formationProposee: /^formationpropos/
+  };
+
+  /* ---------- État ---------- */
+  var records = [];
+  var cols = {};
+  var query = "";
+  var openDossiers = {};   // id -> true
+  var openGroups = {};     // "cat|state" -> true/false (choix de l'utilisateur)
+  var pendingRender = false;
+  var forcedNotice = "";
+
+  var grid = document.getElementById("grid");
+  var notice = document.getElementById("notice");
+  var searchInput = document.getElementById("search");
+  var searchBox = document.getElementById("searchBox");
+
+  /* ---------- Utilitaires ---------- */
+  function norm(s) {
+    return String(s == null ? "" : s)
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  function lettersOnly(s) { return norm(s).replace(/[^a-z]/g, ""); }
+
+  function asText(v) {
+    if (v == null) return "";
+    if (Array.isArray(v)) {                       // Choice List : ["L", "a", "b"]
+      return v.filter(function (x) { return x !== "L"; }).join(", ");
+    }
+    return String(v);
+  }
+
+  function detectColumns(rec) {
+    var keys = Object.keys(rec).filter(function (k) { return k !== "id"; });
+    var found = {};
+    Object.keys(COLUMN_PATTERNS).forEach(function (name) {
+      var re = COLUMN_PATTERNS[name];
+      for (var i = 0; i < keys.length; i++) {
+        if (re.test(lettersOnly(keys[i]))) { found[name] = keys[i]; break; }
+      }
+    });
+    return found;
+  }
+
+  function val(rec, name) { return cols[name] ? asText(rec[cols[name]]) : ""; }
+
+  function categoryOf(rec) {
+    var t = norm(val(rec, "saisine"));
+    if (/handicap|medic/.test(t)) return "hm";
+    if (/\bshn\b|haut niveau/.test(t)) return "shn";
+    return "aut";
+  }
+
+  function stateOf(rec) {
+    var s = norm(val(rec, "situation")).trim();
+    if (/clotur/.test(s)) return "closed";
+    if (/traiter/.test(s) || s === "") return "todo";
+    if (/traite/.test(s)) return "done";
+    return "todo";
+  }
+
+  function el(tag, props, children) {
+    var node = document.createElement(tag);
+    if (props) Object.keys(props).forEach(function (k) {
+      if (k === "class") node.className = props[k];
+      else if (k === "text") node.textContent = props[k];
+      else node.setAttribute(k, props[k]);
+    });
+    (children || []).forEach(function (c) { if (c) node.appendChild(c); });
+    return node;
+  }
+
+  function hasDirtyEditor() {
+    return !!grid.querySelector("textarea[data-dirty='1']");
+  }
+
+  /* ---------- Rendu ---------- */
+  function matches(rec) {
+    if (!query) return true;
+    var q = norm(query).trim();
+    if (!q) return true;
+    var hay = [val(rec, "nom"), val(rec, "prenom"), val(rec, "dossier"),
+               val(rec, "prenom") + " " + val(rec, "nom"),
+               val(rec, "nom") + " " + val(rec, "prenom")].map(norm).join("|");
+    return hay.indexOf(q) !== -1;
+  }
+
+  function sortRecs(a, b) {
+    var na = norm(val(a, "nom") + " " + val(a, "prenom"));
+    var nb = norm(val(b, "nom") + " " + val(b, "prenom"));
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  }
+
+  function render() {
+    if (hasDirtyEditor()) { pendingRender = true; return; }
+    pendingRender = false;
+    grid.textContent = "";
+
+    if (forcedNotice) {
+      notice.style.display = "block";
+      notice.textContent = forcedNotice;
+    } else if (!records.length) {
+      notice.style.display = "block";
+      notice.textContent = "Aucun dossier à afficher. Vérifiez que le widget est lié à la table des demandes CAES.";
+    } else if (!cols.saisine || !cols.situation) {
+      notice.style.display = "block";
+      var missing = [];
+      if (!cols.saisine) missing.push("« Type de saisine »");
+      if (!cols.situation) missing.push("« Situation finale »");
+      notice.textContent = "Colonne introuvable : " + missing.join(" et ") +
+        ". Les dossiers sont classés par défaut dans « Autres situations » / « À traiter ».";
+    } else {
+      notice.style.display = "none";
+    }
+
+    var buckets = {};
+    CATEGORIES.forEach(function (c) {
+      buckets[c.key] = { todo: [], done: [], closed: [] };
+    });
+    records.forEach(function (r) {
+      if (!matches(r)) return;
+      buckets[categoryOf(r)][stateOf(r)].push(r);
+    });
+
+    CATEGORIES.forEach(function (cat) {
+      var b = buckets[cat.key];
+      var total = b.todo.length + b.done.length + b.closed.length;
+      var panel = el("section", { class: "panel " + cat.css }, [
+        el("div", { class: "panel-head" }, [
+          el("h2", { text: cat.title }),
+          el("div", { class: "total", text: total + (total > 1 ? " dossiers" : " dossier") })
+        ])
+      ]);
+
+      STATES.forEach(function (st) {
+        var list = b[st.key].sort(sortRecs);
+        var gkey = cat.key + "|" + st.key;
+        var isOpen = openGroups.hasOwnProperty(gkey) ? openGroups[gkey] : st.open;
+        if (query && list.length) isOpen = true;
+
+        var group = el("details", { class: "group" }, [
+          el("summary", null, [
+            el("span", { class: "dot " + st.key }),
+            el("span", { text: st.label }),
+            el("span", { class: "count", text: String(list.length) })
+          ])
+        ]);
+        if (isOpen) group.open = true;
+        group.addEventListener("toggle", function () { openGroups[gkey] = group.open; });
+
+        var wrap = el("div", { class: "list" });
+        if (!list.length) wrap.appendChild(el("div", { class: "empty", text: "Aucun dossier" }));
+        list.forEach(function (r) { wrap.appendChild(renderDossier(r, cat)); });
+        group.appendChild(wrap);
+        panel.appendChild(group);
+      });
+
+      grid.appendChild(panel);
+    });
+  }
+
+  function renderDossier(rec, cat) {
+    var fullName = (val(rec, "nom") + " " + val(rec, "prenom")).trim() || "(sans nom)";
+    var num = val(rec, "dossier");
+
+    var d = el("details", { class: "dossier" }, [
+      el("summary", null, [
+        el("span", { class: "name", text: fullName }),
+        el("span", { class: "num", text: num ? "Dossier n° " + num : "Numéro de dossier non renseigné" })
+      ])
+    ]);
+    if (openDossiers[rec.id]) d.open = true;
+    d.addEventListener("toggle", function () {
+      if (d.open) openDossiers[rec.id] = true; else delete openDossiers[rec.id];
+    });
+
+    var body = el("div", { class: "body" });
+
+    var dl = el("dl", { class: "info" });
+    [["Type de saisine", "saisine"], ["Bac", "bac"],
+     ["Formation demandée", "formationDemandee"], ["Formation proposée", "formationProposee"],
+     ["Situation finale", "situation"]].forEach(function (pair) {
+      var v = val(rec, pair[1]);
+      if (cols[pair[1]] && v) {
+        dl.appendChild(el("dt", { text: pair[0] }));
+        dl.appendChild(el("dd", { text: v }));
+      }
+    });
+    if (dl.children.length) body.appendChild(dl);
+
+    var avis = el("div", { class: "avis" });
+    if (cat.avisField) {
+      var column = cols[cat.avisField];
+      if (!column) {
+        avis.appendChild(el("div", { class: "none", text: "Colonne « " + cat.avisLabel + " » introuvable dans la table." }));
+      } else {
+        var id = "avis-" + rec.id;
+        var original = asText(rec[column]);
+        var ta = el("textarea", { id: id, "aria-label": cat.avisLabel });
+        ta.value = original;
+        var btn = el("button", { type: "button", text: "Enregistrer" });
+        btn.disabled = true;
+        var msg = el("span", { class: "msg" });
+
+        ta.addEventListener("input", function () {
+          var dirty = ta.value !== original;
+          ta.setAttribute("data-dirty", dirty ? "1" : "0");
+          btn.disabled = !dirty;
+          msg.textContent = dirty ? "Modification non enregistrée" : "";
+          msg.className = "msg";
+        });
+
+        function save() {
+          if (ta.getAttribute("data-dirty") !== "1") return;
+          btn.disabled = true;
+          msg.className = "msg";
+          msg.textContent = "Enregistrement…";
+          var fields = {}; fields[column] = ta.value;
+          grist.getTable().update({ id: rec.id, fields: fields }).then(function () {
+            original = ta.value;
+            ta.setAttribute("data-dirty", "0");
+            msg.textContent = "Enregistré ✓";
+            if (pendingRender) render();
+          }).catch(function (e) {
+            btn.disabled = false;
+            msg.className = "msg err";
+            msg.textContent = "Échec de l’enregistrement : " + (e && e.message ? e.message : e);
+          });
+        }
+        btn.addEventListener("click", save);
+        ta.addEventListener("blur", function () {
+          // l'enregistrement automatique évite de perdre une saisie
+          setTimeout(function () { if (document.activeElement !== btn) save(); }, 0);
+        });
+
+        avis.appendChild(el("label", { for: id, text: cat.avisLabel }));
+        avis.appendChild(ta);
+        avis.appendChild(el("div", { class: "actions" }, [btn, msg]));
+      }
+    } else {
+      avis.appendChild(el("div", { class: "none", text: "Pas d’avis à renseigner pour cette catégorie." }));
+    }
+    body.appendChild(avis);
+    d.appendChild(body);
+    return d;
+  }
+
+  /* ---------- Recherche ---------- */
+  searchInput.addEventListener("input", function () {
+    query = searchInput.value;
+    searchBox.classList.toggle("has-text", !!query);
+    render();
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    searchInput.value = ""; query = "";
+    searchBox.classList.remove("has-text");
+    render(); searchInput.focus();
+  });
+
+  /* ---------- Grist ---------- */
+  // Les 3 catégories s'affichent tout de suite, même avant l'arrivée des données
+  render();
+
+  if (typeof grist === "undefined") {
+    forcedNotice = "Le widget n’est pas chargé depuis Grist (ou la bibliothèque Grist est bloquée) : " +
+      "aucune donnée ne peut être lue. Ouvrez-le comme widget personnalisé dans votre document Grist.";
+    render();
+    return;
+  }
+
+  grist.ready({ requiredAccess: "full" });
+  grist.onRecords(function (recs) {
+    forcedNotice = "";
+    records = recs || [];
+    if (records.length) cols = detectColumns(records[0]);
+    render();
+  });
+
+  // Aucune donnée reçue au bout de 4 s : probablement aucune table liée au widget
+  setTimeout(function () {
+    if (!records.length && !forcedNotice) {
+      forcedNotice = "Aucune donnée reçue de Grist. Dans le panneau du widget, choisissez la table " +
+        "des demandes CAES dans « Sélectionner les données » et donnez l’accès complet au document.";
+      render();
+    }
+  }, 4000);
+})();
+</script>
+</body>
+</html>
