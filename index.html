@@ -165,6 +165,13 @@
   .diag th, .diag td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   .diag code { background: rgba(31,42,55,.07); padding: 0 4px; border-radius: 4px; word-break: break-all; }
   .diag h3 { margin: 8px 0 4px; font-size: 13px; }
+  .dossier .name strong { margin-right: 8px; }
+  .dossier .bac { color: var(--muted); font-size: 12.5px; }
+  .avis + .avis { margin-top: 10px; }
+  .avis .lbl { font-weight: 600; font-size: 13px; margin: 10px 0 4px; }
+  .choices { display: flex; gap: 18px; flex-wrap: wrap; }
+  .choices label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; cursor: pointer; }
+  .choices input { width: 17px; height: 17px; cursor: pointer; }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -207,8 +214,12 @@
     { name: "SituationFinale", title: "Situation finale",   type: "Any", description: "À traiter, Traité ou Clôturé" },
     { name: "AvisMedecin",   title: "Avis médecin",         type: "Any", description: "Modifiable pour les saisines Handicap/Médical" },
     { name: "AvisMaison",    title: "Avis Maison de la Performance", type: "Any", description: "Modifiable pour les saisines SHN" },
-    { name: "Bac",               title: "Bac (facultatif)",                  type: "Any", optional: true },
+    { name: "TypeBac",           title: "Type de bac (facultatif)",          type: "Any", optional: true },
+    { name: "SpecialiteBac",     title: "Spécialité du bac (facultatif)",    type: "Any", optional: true },
     { name: "FormationDemandee", title: "Formation demandée (facultatif)",   type: "Any", optional: true },
+    { name: "Etablissement",     title: "Établissement concerné (facultatif)", type: "Any", optional: true },
+    { name: "AvisEtablissement", title: "Avis de l’établissement : Favorable / Défavorable (facultatif)", type: "Any", optional: true },
+    { name: "AutreProposition",  title: "Autre proposition envisageable (facultatif)", type: "Any", optional: true },
     { name: "FormationProposee", title: "Formation proposée (facultatif)",   type: "Any", optional: true }
   ];
 
@@ -221,8 +232,12 @@
     SituationFinale:   /^situationfinale/,
     AvisMedecin:       /^avism?e?decin/,
     AvisMaison:        /^avis.*maison/,
-    Bac:               /^bac$/,
+    TypeBac:           /^(typede)?bac$|^typebac/,
+    SpecialiteBac:     /specialit/,
     FormationDemandee: /^formationdemand/,
+    Etablissement:     /^etablissement/,
+    AvisEtablissement: /^avis.*etablissement/,
+    AutreProposition:  /autreproposition|propositionenvisag/,
     FormationProposee: /^formationpropos/
   };
   var colOf = {};      // nom logique -> clé réellement présente dans les enregistrements
@@ -429,14 +444,143 @@
     diag.hidden = false;
   }
 
+  function saveField(rec, name, value) {
+    var column = colOf[name];
+    var table = (column === name) ? grist.selectedTable : grist.getTable();
+    var fields = {}; fields[column] = value;
+    return table.update({ id: rec.id, fields: fields });
+  }
+
+  // Zone de texte modifiable liée à une colonne
+  function textEditor(rec, name, label, placeholder) {
+    var wrap = el("div", { class: "avis" });
+    var column = colOf[name];
+    if (column === undefined) {
+      wrap.appendChild(el("div", { class: "none", text: "Colonne « " + label + " » introuvable : associez-la dans le panneau du widget." }));
+      return wrap;
+    }
+    var id = name + "-" + rec.id;
+    var original = asText(rec[column]);
+    var ta = el("textarea", { id: id, "aria-label": label });
+    if (placeholder) ta.placeholder = placeholder;
+    ta.value = original;
+    var btn = el("button", { type: "button", text: "Enregistrer" });
+    btn.disabled = true;
+    var msg = el("span", { class: "msg" });
+
+    ta.addEventListener("input", function () {
+      var dirty = ta.value !== original;
+      ta.setAttribute("data-dirty", dirty ? "1" : "0");
+      btn.disabled = !dirty;
+      msg.textContent = dirty ? "Modification non enregistrée" : "";
+      msg.className = "msg";
+    });
+
+    function save() {
+      if (ta.getAttribute("data-dirty") !== "1") return;
+      btn.disabled = true;
+      msg.className = "msg";
+      msg.textContent = "Enregistrement…";
+      saveField(rec, name, ta.value).then(function () {
+        original = ta.value;
+        ta.setAttribute("data-dirty", "0");
+        msg.textContent = "Enregistré ✓";
+        if (pendingRender) render();
+      }).catch(function (e) {
+        btn.disabled = false;
+        msg.className = "msg err";
+        msg.textContent = "Échec de l’enregistrement : " + (e && e.message ? e.message : e);
+      });
+    }
+    btn.addEventListener("click", save);
+    ta.addEventListener("blur", function () {
+      setTimeout(function () { if (document.activeElement !== btn) save(); }, 0);
+    });
+
+    wrap.appendChild(el("label", { for: id, text: label }));
+    wrap.appendChild(ta);
+    wrap.appendChild(el("div", { class: "actions" }, [btn, msg]));
+    return wrap;
+  }
+
+  // Avis de l'établissement : Favorable / Défavorable (cases à cocher exclusives)
+  function etabEditor(rec) {
+    var box = el("div");
+    var wrap = el("div", { class: "avis" });
+    var column = colOf.AvisEtablissement;
+    wrap.appendChild(el("div", { class: "lbl", text: "Avis de l’établissement" }));
+    if (column === undefined) {
+      wrap.appendChild(el("div", { class: "none", text: "Colonne « Avis de l’établissement » introuvable : associez-la dans le panneau du widget." }));
+      box.appendChild(wrap);
+      return box;
+    }
+    var raw = lettersOnly(asText(rec[column]));
+    var choice = /^defavorable/.test(raw) ? "def" : /^favorable/.test(raw) ? "fav" : "";
+
+    var cbFav = el("input", { type: "checkbox" });
+    var cbDef = el("input", { type: "checkbox" });
+    cbFav.checked = choice === "fav";
+    cbDef.checked = choice === "def";
+    var msg = el("span", { class: "msg" });
+    var extra = textEditor(rec, "AutreProposition", "Autre proposition envisageable", "Saisir une autre proposition…");
+    extra.classList.toggle("hidden", choice !== "def");
+
+    function apply(next, source) {
+      choice = next;
+      cbFav.checked = next === "fav";
+      cbDef.checked = next === "def";
+      extra.classList.toggle("hidden", next !== "def");
+      msg.className = "msg";
+      msg.textContent = "Enregistrement…";
+      var text = next === "fav" ? "Favorable" : next === "def" ? "Défavorable" : "";
+      saveField(rec, "AvisEtablissement", text).then(function () {
+        msg.textContent = "Enregistré ✓";
+      }).catch(function (e) {
+        msg.className = "msg err";
+        msg.textContent = "Échec de l’enregistrement : " + (e && e.message ? e.message : e);
+      });
+    }
+    cbFav.addEventListener("change", function () { apply(cbFav.checked ? "fav" : "", cbFav); });
+    cbDef.addEventListener("change", function () { apply(cbDef.checked ? "def" : "", cbDef); });
+
+    wrap.appendChild(el("div", { class: "choices" }, [
+      el("label", null, [cbFav, el("span", { text: "Favorable" })]),
+      el("label", null, [cbDef, el("span", { text: "Défavorable" })])
+    ]));
+    wrap.appendChild(el("div", { class: "actions" }, [msg]));
+    box.appendChild(wrap);
+    box.appendChild(extra);
+    return box;
+  }
+
+  function infoList(rec, pairs) {
+    var dl = el("dl", { class: "info" });
+    pairs.forEach(function (pair) {
+      var v = val(rec, pair[1]);
+      if (v) {
+        dl.appendChild(el("dt", { text: pair[0] }));
+        dl.appendChild(el("dd", { text: v }));
+      }
+    });
+    return dl.children.length ? dl : null;
+  }
+
   function renderDossier(rec, cat) {
-    var fullName = (val(rec, "Nom") + " " + val(rec, "Prenom")).trim() || "(sans nom)";
+    var nameStr = (val(rec, "Nom") + " " + val(rec, "Prenom")).trim() || "(sans nom)";
     var num = val(rec, "NumeroDossier");
+    var bacType = val(rec, "TypeBac");
+    var bacSpe = val(rec, "SpecialiteBac");
+    var bacLine = [];
+    if (bacType) bacLine.push("Bac : " + bacType);
+    if (bacSpe) bacLine.push("Spécialité : " + bacSpe);
 
     var d = el("details", { class: "dossier" }, [
       el("summary", null, [
-        el("span", { class: "name", text: fullName }),
-        el("span", { class: "num", text: num ? "Dossier n° " + num : "Numéro de dossier non renseigné" })
+        el("span", { class: "name" }, [
+          el("strong", { text: num || "N° ?" }),
+          document.createTextNode(nameStr)
+        ]),
+        bacLine.length ? el("span", { class: "bac", text: bacLine.join("  ·  ") }) : null
       ])
     ]);
     if (openDossiers[rec.id]) d.open = true;
@@ -445,72 +589,23 @@
     });
 
     var body = el("div", { class: "body" });
+    var dl1 = infoList(rec, [["Type de saisine", "TypeSaisine"], ["Situation finale", "SituationFinale"],
+                             ["Formation demandée", "FormationDemandee"], ["Établissement concerné", "Etablissement"]]);
+    if (dl1) body.appendChild(dl1);
 
-    var dl = el("dl", { class: "info" });
-    [["Type de saisine", "TypeSaisine"], ["Bac", "Bac"],
-     ["Formation demandée", "FormationDemandee"], ["Formation proposée", "FormationProposee"],
-     ["Situation finale", "SituationFinale"]].forEach(function (pair) {
-      var v = val(rec, pair[1]);
-      if (v) {
-        dl.appendChild(el("dt", { text: pair[0] }));
-        dl.appendChild(el("dd", { text: v }));
-      }
-    });
-    if (dl.children.length) body.appendChild(dl);
+    body.appendChild(etabEditor(rec));
 
-    var avis = el("div", { class: "avis" });
+    var dl2 = infoList(rec, [["Formation proposée", "FormationProposee"]]);
+    if (dl2) body.appendChild(dl2);
+
     if (cat.avisField) {
-      var column = colOf[cat.avisField];
-      if (column === undefined) {
-        avis.appendChild(el("div", { class: "none", text: "Colonne « " + cat.avisLabel + " » non associée : choisissez-la dans le panneau de configuration du widget." }));
-      } else {
-        var id = "avis-" + rec.id;
-        var original = asText(rec[column]);
-        var ta = el("textarea", { id: id, "aria-label": cat.avisLabel });
-        ta.value = original;
-        var btn = el("button", { type: "button", text: "Enregistrer" });
-        btn.disabled = true;
-        var msg = el("span", { class: "msg" });
-
-        ta.addEventListener("input", function () {
-          var dirty = ta.value !== original;
-          ta.setAttribute("data-dirty", dirty ? "1" : "0");
-          btn.disabled = !dirty;
-          msg.textContent = dirty ? "Modification non enregistrée" : "";
-          msg.className = "msg";
-        });
-
-        function save() {
-          if (ta.getAttribute("data-dirty") !== "1") return;
-          btn.disabled = true;
-          msg.className = "msg";
-          msg.textContent = "Enregistrement…";
-          var fields = {}; fields[column] = ta.value;
-          (column === cat.avisField ? grist.selectedTable : grist.getTable()).update({ id: rec.id, fields: fields }).then(function () {
-            original = ta.value;
-            ta.setAttribute("data-dirty", "0");
-            msg.textContent = "Enregistré ✓";
-            if (pendingRender) render();
-          }).catch(function (e) {
-            btn.disabled = false;
-            msg.className = "msg err";
-            msg.textContent = "Échec de l’enregistrement : " + (e && e.message ? e.message : e);
-          });
-        }
-        btn.addEventListener("click", save);
-        ta.addEventListener("blur", function () {
-          // l'enregistrement automatique évite de perdre une saisie
-          setTimeout(function () { if (document.activeElement !== btn) save(); }, 0);
-        });
-
-        avis.appendChild(el("label", { for: id, text: cat.avisLabel }));
-        avis.appendChild(ta);
-        avis.appendChild(el("div", { class: "actions" }, [btn, msg]));
-      }
+      var avisWrap = el("div", { class: "avis" });
+      avisWrap.appendChild(textEditor(rec, cat.avisField, cat.avisLabel));
+      body.appendChild(avisWrap);
     } else {
-      avis.appendChild(el("div", { class: "none", text: "Pas d’avis à renseigner pour cette catégorie." }));
+      body.appendChild(el("div", { class: "avis" }, [
+        el("div", { class: "none", text: "Pas d’avis médecin / Maison de la Performance pour cette catégorie." })]));
     }
-    body.appendChild(avis);
     d.appendChild(body);
     return d;
   }
