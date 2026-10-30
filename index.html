@@ -166,6 +166,7 @@
   .diag code { background: rgba(31,42,55,.07); padding: 0 4px; border-radius: 4px; word-break: break-all; }
   .diag h3 { margin: 8px 0 4px; font-size: 13px; }
   .dossier .name strong { margin-right: 8px; }
+  .info dd.hl { color: var(--tint); font-weight: 600; }
   .dossier .bac { color: var(--muted); font-size: 12.5px; }
   .avis + .avis { margin-top: 10px; }
   .avis .lbl { font-weight: 600; font-size: 13px; margin: 10px 0 4px; }
@@ -216,6 +217,7 @@
     { name: "AvisMaison",    title: "Avis Maison de la Performance", type: "Any", description: "Modifiable pour les saisines SHN" },
     { name: "TypeBac",           title: "Type de bac (facultatif)",          type: "Any", optional: true },
     { name: "SpecialiteBac",     title: "Spécialité du bac (facultatif)",    type: "Any", optional: true },
+    { name: "Observation",       title: "Observation (facultatif)",          type: "Any", optional: true },
     { name: "FormationDemandee", title: "Formation demandée (facultatif)",   type: "Any", optional: true },
     { name: "Etablissement",     title: "Établissement concerné (facultatif)", type: "Any", optional: true },
     { name: "AvisEtablissement", title: "Avis étab / université (facultatif)", type: "Any", optional: true, description: "Reçoit « Avis favorable » ou « Avis défavorable »" },
@@ -236,6 +238,7 @@
     AvisMaison:        /^avis.*maison/,
     TypeBac:           /^(typede)?bac$|^typebac/,
     SpecialiteBac:     /specialit/,
+    Observation:       /observation/,
     FormationDemandee: /^formationdemand/,
     Etablissement:     /^etablissement/,
     AvisEtablissement: /^avis.*(tab|univ)/,
@@ -564,7 +567,7 @@
       var v = val(rec, pair[1]);
       if (v) {
         dl.appendChild(el("dt", { text: pair[0] }));
-        dl.appendChild(el("dd", { text: v }));
+        dl.appendChild(el("dd", { class: pair[2] ? "hl" : "", text: v }));
       }
     });
     return dl.children.length ? dl : null;
@@ -583,7 +586,7 @@
       el("summary", null, [
         el("span", { class: "name" }, [
           el("strong", { text: num || "N° ?" }),
-          document.createTextNode(nameStr)
+          el("strong", { text: nameStr })
         ]),
         bacLine.length ? el("span", { class: "bac", text: bacLine.join("  ·  ") }) : null
       ])
@@ -594,27 +597,19 @@
     });
 
     var body = el("div", { class: "body" });
-    var pairs1 = [["Type de saisine", "TypeSaisine"]];
+    var pairs = [["Type de saisine", "TypeSaisine"]];
     if (cat.key === "shn") {
-      pairs1.push(["Sport concerné", "Sport"], ["Inscription sur liste ministérielle", "ListeMinisterielle"]);
+      pairs.push(["Sport concerné", "Sport"], ["Inscription sur liste ministérielle", "ListeMinisterielle"]);
     }
-    pairs1.push(["Formation demandée", "FormationDemandee"], ["Établissement concerné", "Etablissement"]);
-    var dl1 = infoList(rec, pairs1);
-    if (dl1) body.appendChild(dl1);
+    pairs.push(["Observation", "Observation"],
+               ["Formation demandée", "FormationDemandee", true],
+               ["Établissement concerné", "Etablissement", true]);
+    var dl = infoList(rec, pairs);
+    if (dl) body.appendChild(dl);
 
-    body.appendChild(etabEditor(rec));
+    if (cat.avisField) body.appendChild(textEditor(rec, cat.avisField, cat.avisLabel));
 
-    var dl2 = infoList(rec, [["Formation proposée", "FormationProposee"]]);
-    if (dl2) body.appendChild(dl2);
-
-    if (cat.avisField) {
-      var avisWrap = el("div", { class: "avis" });
-      avisWrap.appendChild(textEditor(rec, cat.avisField, cat.avisLabel));
-      body.appendChild(avisWrap);
-    } else {
-      body.appendChild(el("div", { class: "avis" }, [
-        el("div", { class: "none", text: "Pas d’avis médecin / Maison de la Performance pour cette catégorie." })]));
-    }
+    body.appendChild(etabEditor(rec));   // avis établissement + autre proposition si défavorable
     d.appendChild(body);
     return d;
   }
